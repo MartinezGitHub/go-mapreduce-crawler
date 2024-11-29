@@ -153,8 +153,11 @@ func (p *poolImpl[T, R]) listGoroutine(mu *sync.Mutex,
 			}
 			// searcher
 			c := searcher(t)
+			// mutex lock
 			mu.Lock()
+			// safety array access
 			*nchildren = append(*nchildren, c...)
+			// mutex unlock
 			mu.Unlock()
 		}
 	}
