@@ -136,7 +136,10 @@ func (p *poolImpl[T, R]) generator(ctx context.Context, children []T, result cha
 
 // listGoroutine - description of List method goroutine
 // Processes parent elements to find children using the searcher function.
-func (p *poolImpl[T, R]) listGoroutine(wg *sync.WaitGroup, ctx context.Context, parents <-chan T, searcher Searcher[T], children *[]T) {
+func (p *poolImpl[T, R]) listGoroutine(mu *sync.Mutex,
+	wg *sync.WaitGroup, ctx context.Context,
+	parents <-chan T, searcher Searcher[T],
+	nchildren *[]T) {
 	defer wg.Done()
 	for {
 		select {
@@ -149,7 +152,10 @@ func (p *poolImpl[T, R]) listGoroutine(wg *sync.WaitGroup, ctx context.Context, 
 				return
 			}
 			// searcher
-			*children = searcher(t)
+			c := searcher(t)
+			mu.Lock()
+			*nchildren = append(*nchildren, c...)
+			mu.Unlock()
 		}
 	}
 }
@@ -159,16 +165,19 @@ func (p *poolImpl[T, R]) listGoroutine(wg *sync.WaitGroup, ctx context.Context, 
 func (p *poolImpl[T, R]) List(ctx context.Context, workers int, start T, searcher Searcher[T]) {
 	children := []T{start}
 	wg := sync.WaitGroup{}
+	// mutex for safety level array access
+	mu := sync.Mutex{}
 	for {
 		parents := make(chan T)
+		var nChildren []T
 		for i := 0; i < workers; i++ {
 			// Start a goroutine for each worker.
 			wg.Add(1)
-			go p.listGoroutine(&wg, ctx, parents, searcher, &children)
+			go p.listGoroutine(&mu, &wg, ctx, parents, searcher, &nChildren)
 		}
 		p.generator(ctx, children, parents)
-		clear(children)
 		wg.Wait()
+		children = nChildren
 		if len(children) == 0 {
 			// Exit if no more children found.
 			break
